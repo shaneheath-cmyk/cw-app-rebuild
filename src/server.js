@@ -2,7 +2,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join, extname } from 'node:path';
 import { getConfig } from './lib/config.js';
-import { FileStore } from './lib/store.js';
+import { emptyState, FileStore } from './lib/store.js';
+import { PostgresStore, verifyPostgresRuntime } from './lib/postgres.js';
 import { createDeposit, parseRetrievedDeposit, retrieveDeposit } from './lib/custody.js';
 import { applyStripeEvent, createCheckout, verifyWebhook } from './lib/stripe.js';
 import { createUser, currentActor, ensureBootstrapAdmin, signIn, signOut } from './lib/auth.js';
@@ -32,17 +33,22 @@ async function body(request, limit = 6 * 1024 * 1024) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-export function createApp({ config = getConfig(), store = new FileStore(config.dataDirectory) } = {}) {
+export function createStore(config) {
+  // Production begins with no synthetic catalogue records; imports establish canon.
+  return config.databaseUrl ? new PostgresStore(config.databaseUrl, { ...emptyState, works: [] }) : new FileStore(config.dataDirectory);
+}
+
+export function createApp({ config = getConfig(), store = createStore(config) } = {}) {
   const publicDirectory = join(process.cwd(), 'src', 'public');
   const secureCookie = config.publicOrigin.startsWith('https://');
   const actor = (request, permitted) => currentActor({ store, cookieHeader: request.headers.cookie, permitted });
-  const ready = ensureBootstrapAdmin({ store, config });
+  const ready = store.initialise().then(() => ensureBootstrapAdmin({ store, config }));
   return createServer(async (request, response) => {
     try {
       await ready;
       securityHeaders(response);
       const url = new URL(request.url, config.publicOrigin);
-      if (request.method === 'GET' && url.pathname === '/api/health') return json(response, 200, { status: 'ok', stripeMode: config.stripeSecretKey ? (config.stripeSecretKey.startsWith('sk_live_') ? 'live' : 'test') : 'unconfigured' });
+      if (request.method === 'GET' && url.pathname === '/api/health') return json(response, 200, { status: 'ok', store: config.databaseUrl ? 'postgresql' : 'file', stripeMode: config.stripeSecretKey ? (config.stripeSecretKey.startsWith('sk_live_') ? 'live' : 'test') : 'unconfigured' });
       if (request.method === 'POST' && url.pathname === '/api/auth/login') {
         const input = JSON.parse(await body(request, 32 * 1024));
         const result = await signIn({ store, email: input.email, password: input.password, secureCookie });
@@ -124,5 +130,5 @@ export function createApp({ config = getConfig(), store = new FileStore(config.d
 if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url) {
   const config = getConfig();
   const app = createApp({ config });
-  app.listen(config.port, () => console.log(`CW Library listening at ${config.publicOrigin}`));
+  app.listen(config.port, config.bindHost, () => console.log(`CW Library listening at ${config.publicOrigin}`));
 }

@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const emptyState = {
+export const emptyState = {
   works: [
     {
       id: 'work-beneath-black-trees',

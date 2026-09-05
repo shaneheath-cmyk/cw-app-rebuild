@@ -8,6 +8,7 @@
     "dev": "node src/server.js",
     "start": "node src/server.js",
     "build": "node scripts/build.mjs",
+    "db:migrate": "node scripts/db-migrate.mjs",
     "test": "node --test",
     "check:legacy-free": "node scripts/check-legacy-free.mjs"
   }

@@ -5,3 +5,4 @@ dist/
 node_modules/
 .playwright-cli/
 output/
+cw-app-release.tgz

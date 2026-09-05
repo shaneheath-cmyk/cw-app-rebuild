@@ -5,8 +5,10 @@ export function getConfig(environment = process.env) {
   const storageRoot = resolve(environment.CW_STORAGE_ROOT || './storage');
   return {
     port: Number(environment.PORT || 4173),
+    bindHost: environment.CW_BIND_HOST || '127.0.0.1',
     dataDirectory,
     storageRoot,
+    databaseUrl: environment.DATABASE_URL || '',
     publicOrigin: environment.CW_PUBLIC_ORIGIN || `http://localhost:${environment.PORT || 4173}`,
     bootstrapAdminEmail: environment.CW_BOOTSTRAP_ADMIN_EMAIL || '',
     bootstrapAdminPassword: environment.CW_BOOTSTRAP_ADMIN_PASSWORD || '',

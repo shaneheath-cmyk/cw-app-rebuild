@@ -1,0 +1,30 @@
+[Unit]
+Description=Collective Writings standalone runtime
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=cwapp
+Group=cwapp
+WorkingDirectory=/opt/cw-app
+EnvironmentFile=/etc/cw-app/cw-app.env
+Environment=NODE_ENV=production
+Environment=PORT=4173
+Environment=CW_BIND_HOST=127.0.0.1
+Environment=CW_PUBLIC_ORIGIN=http://127.0.0.1:4173
+Environment=CW_STORAGE_ROOT=/var/lib/cw-app/storage
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStartPre=/usr/bin/node scripts/db-migrate.mjs
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/cw-app
+
+[Install]
+WantedBy=multi-user.target

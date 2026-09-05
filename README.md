@@ -29,3 +29,7 @@ npm run build
 ```
 
 See `docs/REBUILD-BLUEPRINT.md` for the governing migration and delivery plan, and `audit/CLAUDE-AUDIT-BRIEF.md` for the independent audit scope.
+
+## Pax Node 1 runtime
+
+When `DATABASE_URL` is configured, the service uses PostgreSQL and requires the recorded migration state. The loopback-only systemd definition is at `deploy/cw-app.service`; its activation evidence is in `docs/POSTGRES-RUNTIME-EVIDENCE.md`. It is deliberately not public until a TLS/reverse-proxy release is separately approved.
