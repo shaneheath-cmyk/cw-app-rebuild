@@ -55,6 +55,13 @@ add psql's `-1` flag.
 
 ## WP-1 — Relational repositories (retire `cw_runtime_state`)
 
+> **SUPERSEDED by `audit/CODEX-WP1-INSTRUCTION.md`. Follow that document, not this section.**
+> This section specified a new `cw_*` table set. That was an error on my part: `001_initial.sql`
+> already defines the target relational schema (`app_user`, `source_deposit`, `editorial_task`,
+> `commerce_event`, `customer_order`, `entitlement`, `audit_event`) and it is already applied in
+> production. `002` added the JSON blob *beside* it. WP-1 is therefore **conform to `001`**, not
+> design a parallel schema. The "Why" below still holds; the design detail does not.
+
 **Why:** the entire application state is one JSON document, read and rewritten in full on every
 request. WP-0 removed the hard ceiling; it did not remove the read-modify-write cycle, the
 absence of cross-process locking, or the O(state) cost per call. A second instance, or an
