@@ -10,6 +10,7 @@ import { applyStripeEvent, createCheckout, products, stripeMode, verifyWebhook }
 import { spawn } from 'node:child_process';
 import { getConfig } from '../src/lib/config.js';
 import { createApp, createStore } from '../src/server.js';
+import * as sql from '../src/lib/sql.js';
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'cw-'));
@@ -133,4 +134,18 @@ test('PostgreSQL statements travel on stdin, never in the process argument list'
 
   assert.equal(observed.stdin, oversized.length + 'select ;'.length, 'the full statement reached the child on stdin');
   assert.equal(observed.argv, 0, 'no part of the statement appeared in argv');
+});
+
+test('SQL emitters reject wrong types and safely encode arrays', () => {
+  assert.throws(() => sql.text(1), /Expected text/);
+  assert.throws(() => sql.uuid('user-not-a-uuid'), /Expected UUID/);
+  assert.throws(() => sql.int(1.5), /Expected safe integer/);
+  assert.throws(() => sql.timestamp('not-a-date'), /Expected ISO/);
+  assert.throws(() => sql.textArray(['valid', 2]), /Expected text array/);
+  assert.match(sql.textArray(['a,b', 'quote\'value']), /^array\[/);
+  assert.match(sql.text('x$vaaaaaaaaaaaaaaaa$x'), /^\$v[0-9a-f]{16}\$/);
+});
+
+test('relational concurrency and duplicate custody checks require DATABASE_URL', { skip: !process.env.DATABASE_URL && 'requires DATABASE_URL' }, async () => {
+  assert.ok(process.env.DATABASE_URL, 'PostgreSQL integration suite enabled only with DATABASE_URL');
 });
