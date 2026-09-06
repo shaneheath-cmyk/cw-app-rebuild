@@ -34,8 +34,15 @@ async function body(request, limit = 6 * 1024 * 1024) {
 }
 
 export function createStore(config) {
+  // Fail closed. Without this guard an unset or mistyped DATABASE_URL started the service
+  // successfully on the file store: a synthetic catalogue, a fresh bootstrap admin, and every
+  // subsequent write diverging silently from the real database.
+  if (!config.databaseUrl) {
+    if (config.nodeEnv === 'production') throw new Error('DATABASE_URL is required when NODE_ENV=production. Refusing to start on the file store.');
+    return new FileStore(config.dataDirectory);
+  }
   // Production begins with no synthetic catalogue records; imports establish canon.
-  return config.databaseUrl ? new PostgresStore(config.databaseUrl, { ...emptyState, works: [] }) : new FileStore(config.dataDirectory);
+  return new PostgresStore(config.databaseUrl, { ...emptyState, works: [] });
 }
 
 export function createApp({ config = getConfig(), store = createStore(config) } = {}) {

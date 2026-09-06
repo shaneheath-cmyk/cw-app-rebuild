@@ -4,6 +4,7 @@ export function getConfig(environment = process.env) {
   const dataDirectory = resolve(environment.CW_DATA_DIR || './data');
   const storageRoot = resolve(environment.CW_STORAGE_ROOT || './storage');
   return {
+    nodeEnv: environment.NODE_ENV || 'development',
     port: Number(environment.PORT || 4173),
     bindHost: environment.CW_BIND_HOST || '127.0.0.1',
     dataDirectory,

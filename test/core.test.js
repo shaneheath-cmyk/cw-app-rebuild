@@ -7,7 +7,9 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { FileStore } from '../src/lib/store.js';
 import { createDeposit, retrieveDeposit } from '../src/lib/custody.js';
 import { applyStripeEvent, createCheckout, products, stripeMode, verifyWebhook } from '../src/lib/stripe.js';
-import { createApp } from '../src/server.js';
+import { spawn } from 'node:child_process';
+import { getConfig } from '../src/lib/config.js';
+import { createApp, createStore } from '../src/server.js';
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'cw-'));
@@ -99,4 +101,36 @@ test('privileged HTTP workflow requires a CW session and preserves approval boun
   const state = await store.read();
   assert.equal(state.deposits[0].status, 'parsed');
   assert.equal(state.tasks.filter((task) => task.type === 'catalogue-approval').length, 1);
+});
+
+test('the runtime refuses to start on the file store when NODE_ENV is production', () => {
+  const production = getConfig({ NODE_ENV: 'production', CW_DATA_DIR: './data', CW_STORAGE_ROOT: './storage' });
+  assert.throws(() => createStore(production), /DATABASE_URL is required when NODE_ENV=production/);
+
+  const development = getConfig({ CW_DATA_DIR: './data', CW_STORAGE_ROOT: './storage' });
+  assert.ok(createStore(development), 'development still falls back to the file store');
+
+  const configured = getConfig({ NODE_ENV: 'production', DATABASE_URL: 'postgresql://cw_app:secret@127.0.0.1:5432/cw_library' });
+  assert.equal(createStore(configured).constructor.name, 'PostgresStore');
+});
+
+test('PostgreSQL statements travel on stdin, never in the process argument list', async () => {
+  // A payload larger than the Linux single-argument limit (MAX_ARG_STRLEN, 131072 bytes) must
+  // survive. Under the previous `-c` form this failed with E2BIG and exposed state via argv.
+  const oversized = 'x'.repeat(200_000);
+  const observed = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['-e', `
+      let input = '';
+      process.stdin.on('data', (chunk) => { input += chunk; });
+      process.stdin.on('end', () => process.stdout.write(JSON.stringify({ stdin: input.length, argv: process.argv.slice(1).join(' ').length })));
+    `], { env: { PATH: process.env.PATH }, windowsHide: true });
+    let out = '';
+    child.stdout.on('data', (chunk) => { out += chunk; });
+    child.once('error', reject);
+    child.once('close', () => resolve(JSON.parse(out)));
+    child.stdin.end(`select ${oversized};`, 'utf8');
+  });
+
+  assert.equal(observed.stdin, oversized.length + 'select ;'.length, 'the full statement reached the child on stdin');
+  assert.equal(observed.argv, 0, 'no part of the statement appeared in argv');
 });
