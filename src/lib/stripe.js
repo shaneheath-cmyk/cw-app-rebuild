@@ -47,6 +47,9 @@ export function verifyWebhook(rawBody, signature, secret) {
 }
 
 export async function applyStripeEvent({ store, event }) {
+  const session = event.data?.object;
+  const product = products[session?.metadata?.product_code];
+  if (store.recordStripeEvent) return store.recordStripeEvent({ event, product });
   return store.update((state) => {
     if (state.stripeEvents.some((item) => item.id === event.id)) return { repeated: true };
     state.stripeEvents.push({ id: event.id, type: event.type, receivedAt: new Date().toISOString() });

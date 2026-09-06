@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { hashToken } from './repositories/sessions.js';
 
 const scrypt = promisify(scryptCallback);
 const sessionLifetimeMs = 1000 * 60 * 60 * 12;
@@ -20,6 +21,13 @@ export async function passwordMatches(password, stored) {
 
 export async function ensureBootstrapAdmin({ store, config }) {
   if (!config.bootstrapAdminEmail || !config.bootstrapAdminPassword) return;
+  if (store.countUsers) {
+    if (await store.countUsers()) return;
+    const id = randomUUID(); const createdAt = new Date().toISOString();
+    await store.insertUser({ id, email: config.bootstrapAdminEmail.trim().toLowerCase(), passwordHash: await passwordHash(config.bootstrapAdminPassword), roles: ['system-admin'], createdAt });
+    await store.appendAuditEvent({ id: randomUUID(), type: 'auth.bootstrap-created', subjectId: config.bootstrapAdminEmail, actorLabel: 'system' });
+    return;
+  }
   await store.update(async (state) => {
     if (state.users.length) return;
     const at = new Date().toISOString();
@@ -38,6 +46,14 @@ function sessionCookie(token, secure) {
 
 export async function signIn({ store, email, password, secureCookie }) {
   const normalised = String(email || '').trim().toLowerCase();
+  if (store.findUserByEmail) {
+    const user = await store.findUserByEmail(normalised);
+    if (!user || !(await passwordMatches(password, user.passwordHash))) throw new Error('Invalid email or password.');
+    const token = randomBytes(32).toString('base64url'); const expiresAt = new Date(Date.now() + sessionLifetimeMs).toISOString();
+    await store.pruneSessions(); await store.insertSession({ tokenHash: hashToken(token), userId: user.id, expiresAt });
+    await store.appendAuditEvent({ id: randomUUID(), type: 'auth.signed-in', subjectId: user.id, actorId: user.id });
+    return { user: { id: user.id, email: user.email, roles: user.roles }, cookie: sessionCookie(token, secureCookie) };
+  }
   const state = await store.read();
   const user = state.users.find((item) => item.email === normalised);
   if (!user || !(await passwordMatches(password, user.passwordHash))) throw new Error('Invalid email or password.');
@@ -54,6 +70,11 @@ export async function signIn({ store, email, password, secureCookie }) {
 export async function currentActor({ store, cookieHeader, permitted }) {
   const token = readCookies(cookieHeader).cw_session;
   if (!token) throw new Error('Authentication required.');
+  if (store.findSessionByTokenHash) {
+    const user = await store.findSessionByTokenHash(hashToken(token));
+    if (!user || !user.roles.some((role) => permitted.includes(role))) throw new Error('Forbidden.');
+    return { id: user.id, email: user.email, roles: user.roles };
+  }
   const state = await store.read();
   const session = state.sessions.find((item) => item.token === token && new Date(item.expiresAt) > new Date());
   const user = session && state.users.find((item) => item.id === session.userId);
@@ -63,7 +84,8 @@ export async function currentActor({ store, cookieHeader, permitted }) {
 
 export async function signOut({ store, cookieHeader, secureCookie }) {
   const token = readCookies(cookieHeader).cw_session;
-  if (token) await store.update((state) => { state.sessions = state.sessions.filter((item) => item.token !== token); });
+  if (token && store.deleteSession) await store.deleteSession(hashToken(token));
+  else if (token) await store.update((state) => { state.sessions = state.sessions.filter((item) => item.token !== token); });
   return `cw_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secureCookie ? '; Secure' : ''}`;
 }
 
@@ -73,6 +95,12 @@ export async function createUser({ store, email, password, assignedRoles, actor 
   const selectedRoles = [...new Set(assignedRoles || [])];
   if (!selectedRoles.length || selectedRoles.some((role) => !roles.includes(role))) throw new Error('At least one valid role is required.');
   const hash = await passwordHash(password);
+  if (store.findUserByEmail) {
+    if (await store.findUserByEmail(normalised)) throw new Error('A user with this email already exists.');
+    const user = { id: randomUUID(), email: normalised, passwordHash: hash, roles: selectedRoles, createdAt: new Date().toISOString() };
+    await store.insertUser(user); await store.appendAuditEvent({ id: randomUUID(), type: 'auth.user-created', subjectId: user.id, actorId: actor });
+    return { id: user.id, email: user.email, roles: user.roles };
+  }
   return store.update((state) => {
     if (state.users.some((user) => user.email === normalised)) throw new Error('A user with this email already exists.');
     const user = { id: `user-${randomUUID()}`, email: normalised, passwordHash: hash, roles: selectedRoles, createdAt: new Date().toISOString() };

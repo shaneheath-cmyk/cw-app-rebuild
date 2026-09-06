@@ -1,0 +1,2 @@
+import { users } from './users.js'; import { sessions } from './sessions.js'; import { works } from './works.js'; import { tasks } from './tasks.js'; import { audit } from './audit.js'; import { deposits } from './deposits.js'; import { commerce } from './commerce.js';
+export function createRepositories(databaseUrl) { return { databaseUrl, initialise: async () => {}, ...users(databaseUrl), ...sessions(databaseUrl), ...works(databaseUrl), ...tasks(databaseUrl), ...audit(databaseUrl), ...deposits(databaseUrl), ...commerce(databaseUrl) }; }

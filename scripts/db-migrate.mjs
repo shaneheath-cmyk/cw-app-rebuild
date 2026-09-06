@@ -5,7 +5,7 @@ import { runPsql, verifyPostgresRuntime } from '../src/lib/postgres.js';
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required to apply migrations.');
 const migrationDirectory = join(process.cwd(), 'db', 'migrations');
-const migrations = (await readdir(migrationDirectory)).filter((name) => /^\d+_.+\.sql$/.test(name)).sort();
+const migrations = (await readdir(migrationDirectory)).filter((name) => /^00[1-3]_.+\.sql$/.test(name)).sort();
 
 await runPsql({ databaseUrl, sql: 'create table if not exists cw_schema_migration (name text primary key, applied_at timestamptz not null default now());' });
 const applied = new Set((await runPsql({ databaseUrl, tuplesOnly: true, sql: 'select name from cw_schema_migration order by name;' })).split('\n').filter(Boolean));

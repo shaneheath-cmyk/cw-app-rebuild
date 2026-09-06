@@ -2,8 +2,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join, extname } from 'node:path';
 import { getConfig } from './lib/config.js';
-import { emptyState, FileStore } from './lib/store.js';
-import { PostgresStore, verifyPostgresRuntime } from './lib/postgres.js';
+import { FileStore } from './lib/store.js';
+import { createRepositories } from './lib/repositories/index.js';
 import { createDeposit, parseRetrievedDeposit, retrieveDeposit } from './lib/custody.js';
 import { applyStripeEvent, createCheckout, verifyWebhook } from './lib/stripe.js';
 import { createUser, currentActor, ensureBootstrapAdmin, signIn, signOut } from './lib/auth.js';
@@ -42,7 +42,7 @@ export function createStore(config) {
     return new FileStore(config.dataDirectory);
   }
   // Production begins with no synthetic catalogue records; imports establish canon.
-  return new PostgresStore(config.databaseUrl, { ...emptyState, works: [] });
+  return createRepositories(config.databaseUrl);
 }
 
 export function createApp({ config = getConfig(), store = createStore(config) } = {}) {
@@ -77,11 +77,12 @@ export function createApp({ config = getConfig(), store = createStore(config) } 
         return json(response, 201, { user });
       }
       if (request.method === 'GET' && url.pathname === '/api/library') {
-        const state = await store.read();
-        return json(response, 200, { works: state.works.map(({ id, title, author, status, formats, digitalProductCode, kdpUrl, hardcoverDisplayPrice }) => ({ id, title, author, status, formats, digitalProductCode, kdpUrl, hardcoverDisplayPrice })) });
+        const works = store.listWorks ? await store.listWorks() : (await store.read()).works;
+        return json(response, 200, { works });
       }
       if (request.method === 'GET' && url.pathname === '/api/operations') {
         await actor(request, ['literary-custodian', 'editor', 'production', 'release-manager', 'system-admin']);
+        if (store.listOpenTasks) return json(response, 200, { deposits: [], tasks: await store.listOpenTasks(), auditEvents: await store.listRecentAuditEvents(30) });
         const state = await store.read();
         return json(response, 200, { deposits: state.deposits, tasks: state.tasks, auditEvents: state.auditEvents.slice(-30) });
       }

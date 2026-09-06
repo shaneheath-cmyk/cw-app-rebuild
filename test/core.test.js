@@ -111,7 +111,7 @@ test('the runtime refuses to start on the file store when NODE_ENV is production
   assert.ok(createStore(development), 'development still falls back to the file store');
 
   const configured = getConfig({ NODE_ENV: 'production', DATABASE_URL: 'postgresql://cw_app:secret@127.0.0.1:5432/cw_library' });
-  assert.equal(createStore(configured).constructor.name, 'PostgresStore');
+  assert.equal(typeof createStore(configured).findUserByEmail, 'function');
 });
 
 test('PostgreSQL statements travel on stdin, never in the process argument list', async () => {

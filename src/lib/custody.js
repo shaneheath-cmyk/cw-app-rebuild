@@ -18,7 +18,7 @@ export async function createDeposit({ storageRoot, store, submittedBy, filename,
   if (Buffer.byteLength(content, 'utf8') > 5 * 1024 * 1024) throw new Error('Source artifact exceeds the 5 MB textual intake limit.');
   if (!declaredRights) throw new Error('Declared rights are required before deposit.');
 
-  const depositId = `deposit-${randomUUID()}`;
+  const depositId = randomUUID();
   const artifactName = safeFilename(filename);
   const stagingDirectory = resolve(storageRoot, '01-staging', depositId);
   const permittedRoot = resolve(storageRoot, '01-staging');
@@ -40,7 +40,10 @@ export async function createDeposit({ storageRoot, store, submittedBy, filename,
     createdAt: new Date().toISOString(),
   };
 
-  await store.update((state) => {
+  if (store.insertDeposit) {
+    await store.insertDeposit(deposit);
+    await store.appendAuditEvent({ id: randomUUID(), type: 'deposit.staged', subjectId: deposit.id, actorId: submittedBy });
+  } else await store.update((state) => {
     state.deposits.push(deposit);
     state.auditEvents.push({ id: randomUUID(), type: 'deposit.staged', subjectId: deposit.id, at: deposit.createdAt, actor: submittedBy });
   });
@@ -48,6 +51,7 @@ export async function createDeposit({ storageRoot, store, submittedBy, filename,
 }
 
 export async function retrieveDeposit({ store, depositId, actor }) {
+  if (store.retrieveDeposit) return store.retrieveDeposit({ depositId, actor });
   return store.update((state) => {
     const deposit = state.deposits.find((item) => item.id === depositId);
     if (!deposit) throw new Error('Deposit not found.');
@@ -63,6 +67,15 @@ export async function retrieveDeposit({ store, depositId, actor }) {
 }
 
 export async function parseRetrievedDeposit({ storageRoot, store, depositId, actor }) {
+  if (store.findDeposit) {
+    const deposit = await store.findDeposit(depositId);
+    if (!deposit) throw new Error('Deposit not found.');
+    if (deposit.status !== 'retrieved') throw new Error('Only retrieved deposits can be parsed.');
+    const content = await readFile(join(resolve(storageRoot, '01-staging', deposit.id), deposit.filename), 'utf8');
+    const headings = content.split(/\r?\n/).filter((line) => /^(chapter|part|prologue|epilogue)\b/i.test(line.trim())).slice(0, 100);
+    const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
+    return store.replaceDepositParse({ id: randomUUID(), depositId, wordCount, headings, suggestedTitle: deposit.intendedTitle, suggestedAuthor: deposit.intendedAuthor, confidence: deposit.intendedTitle && deposit.intendedAuthor ? 'medium' : 'low', createdAt: new Date().toISOString(), actor });
+  }
   const state = await store.read();
   const deposit = state.deposits.find((item) => item.id === depositId);
   if (!deposit) throw new Error('Deposit not found.');
