@@ -129,6 +129,9 @@ test('the runtime refuses to start on the file store when NODE_ENV is production
 
   const configured = getConfig({ NODE_ENV: 'production', DATABASE_URL: 'postgresql://cw_app:secret@127.0.0.1:5432/cw_library' });
   assert.equal(typeof createStore(configured).findUserByEmail, 'function');
+
+  const exposed = getConfig({ NODE_ENV: 'production', CW_BIND_HOST: '0.0.0.0', DATABASE_URL: 'postgresql://cw_app:secret@127.0.0.1:5432/cw_library' });
+  assert.throws(() => createStore(exposed), /must remain loopback-bound/);
 });
 
 test('PostgreSQL statements travel on stdin, never in the process argument list', async () => {

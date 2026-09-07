@@ -42,6 +42,7 @@ export function createStore(config) {
     if (config.nodeEnv === 'production') throw new Error('DATABASE_URL is required when NODE_ENV=production. Refusing to start on the file store.');
     return new FileStore(config.dataDirectory);
   }
+  if (config.nodeEnv === 'production' && !['127.0.0.1', '::1', 'localhost'].includes(config.bindHost)) throw new Error('Production runtime must remain loopback-bound until explicit public-exposure authorization.');
   // Production begins with no synthetic catalogue records; imports establish canon.
   return createRepositories(config.databaseUrl);
 }
