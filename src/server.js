@@ -23,11 +23,12 @@ function securityHeaders(response) {
 }
 
 async function body(request, limit = 6 * 1024 * 1024) {
+  if (Number(request.headers['content-length'] || 0) > limit) throw Object.assign(new Error('Request exceeds permitted size.'), { code: 'REQUEST_TOO_LARGE' });
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > limit) throw new Error('Request exceeds permitted size.');
+    if (size > limit) throw Object.assign(new Error('Request exceeds permitted size.'), { code: 'REQUEST_TOO_LARGE' });
     chunks.push(chunk);
   }
   return Buffer.concat(chunks).toString('utf8');
@@ -58,7 +59,7 @@ export function createApp({ config = getConfig(), store = createStore(config) } 
       if (request.method === 'GET' && url.pathname === '/api/health') return json(response, 200, { status: 'ok', store: config.databaseUrl ? 'postgresql' : 'file', stripeMode: config.stripeSecretKey ? (config.stripeSecretKey.startsWith('sk_live_') ? 'live' : 'test') : 'unconfigured' });
       if (request.method === 'POST' && url.pathname === '/api/auth/login') {
         const input = JSON.parse(await body(request, 32 * 1024));
-        const result = await signIn({ store, email: input.email, password: input.password, secureCookie, cookieHeader: request.headers.cookie });
+        const result = await signIn({ store, email: input.email, password: input.password, secureCookie, cookieHeader: request.headers.cookie, sourceIp: request.socket.remoteAddress });
         response.setHeader('set-cookie', result.cookie);
         return json(response, 200, { user: result.user });
       }
@@ -100,11 +101,13 @@ export function createApp({ config = getConfig(), store = createStore(config) } 
         return json(response, 200, { parse: await parseRetrievedDeposit({ storageRoot: config.storageRoot, store, depositId, actor: currentActor.id }) });
       }
       if (request.method === 'POST' && url.pathname === '/api/checkout') {
+        const current = await actor(request, ['contributor', 'literary-assistant', 'literary-custodian', 'editor', 'production', 'release-manager', 'finance-admin', 'system-admin']);
+        await store.consumeCheckoutQuota({ subject: `checkout:${current.id}` });
         const input = JSON.parse(await body(request, 32 * 1024));
         return json(response, 201, await createCheckout({ productCode: input.productCode, config }));
       }
       if (request.method === 'POST' && url.pathname === '/api/webhooks/stripe') {
-        const rawBody = await body(request);
+        const rawBody = await body(request, 1024 * 1024);
         if (!verifyWebhook(rawBody, request.headers['stripe-signature'], config.stripeWebhookSecret)) return json(response, 401, { error: 'Invalid webhook signature.' });
         return json(response, 200, await applyStripeEvent({ store, event: JSON.parse(rawBody) }));
       }
@@ -130,6 +133,7 @@ export function createApp({ config = getConfig(), store = createStore(config) } 
       const status = statusByCode[error.code] || (error instanceof SyntaxError ? 400 : error.code === 'ENOENT' ? 404 : 422);
       if (!statusByCode[error.code] && !(error instanceof SyntaxError) && error.code !== 'ENOENT') console.error(error);
       const safeMessage = status === 401 ? 'Authentication required.' : status === 403 ? 'Forbidden.' : status === 400 ? 'Malformed JSON.' : status === 404 ? 'Not found.' : status === 409 ? 'An identical source artifact has already been deposited.' : status === 413 ? 'Request exceeds permitted size.' : status === 429 ? 'Too many requests.' : 'Request failed.';
+      if (status === 429) response.setHeader('retry-after', String(error.retryAfter || 900));
       return json(response, status, { error: safeMessage });
     }
   });

@@ -1,0 +1,16 @@
+import { one, query } from './base.js';
+import { int, text } from '../sql.js';
+export function abuse(databaseUrl) { return {
+  assertRateAllowed: async ({ subject, limit, windowSeconds }) => {
+    const row = await one(databaseUrl, `select row_to_json(c) from (select attempts,window_started as "windowStarted" from cw_request_counter where subject=${text(subject)}) c;`);
+    if (row && Date.now() - Date.parse(row.windowStarted) < windowSeconds * 1000 && row.attempts >= limit) throw Object.assign(new Error('Too many requests.'), { code: 'RATE_LIMITED', retryAfter: windowSeconds });
+  },
+  recordRateAttempt: ({ subject, windowSeconds }) => query(databaseUrl, `insert into cw_request_counter (subject,attempts,window_started) values (${text(subject)},1,now()) on conflict (subject) do update set attempts=case when cw_request_counter.window_started < now() - interval '${int(windowSeconds)} seconds' then 1 else cw_request_counter.attempts + 1 end, window_started=case when cw_request_counter.window_started < now() - interval '${int(windowSeconds)} seconds' then now() else cw_request_counter.window_started end;`),
+  clearRateAttempt: ({ subject }) => query(databaseUrl, `delete from cw_request_counter where subject=${text(subject)};`),
+  assertLoginAllowed: async ({ emailSubject, ipSubject }) => {
+    const blocked = await query(databaseUrl, `select count(*) from cw_request_counter where subject in (${text(emailSubject)},${text(ipSubject)}) and window_started >= now() - interval '900 seconds' and attempts >= 5;`, true);
+    if (Number(blocked)) throw Object.assign(new Error('Too many requests.'), { code: 'RATE_LIMITED', retryAfter: 900 });
+  },
+  recordLoginFailure: ({ emailSubject, ipSubject }) => query(databaseUrl, `begin; insert into cw_request_counter (subject,attempts,window_started) values (${text(emailSubject)},1,now()) on conflict (subject) do update set attempts=case when cw_request_counter.window_started < now() - interval '900 seconds' then 1 else cw_request_counter.attempts+1 end,window_started=case when cw_request_counter.window_started < now() - interval '900 seconds' then now() else cw_request_counter.window_started end; insert into cw_request_counter (subject,attempts,window_started) values (${text(ipSubject)},1,now()) on conflict (subject) do update set attempts=case when cw_request_counter.window_started < now() - interval '900 seconds' then 1 else cw_request_counter.attempts+1 end,window_started=case when cw_request_counter.window_started < now() - interval '900 seconds' then now() else cw_request_counter.window_started end; commit;`),
+  consumeCheckoutQuota: async ({ subject }) => { const row = await one(databaseUrl, `insert into cw_request_counter (subject,attempts,window_started) values (${text(subject)},1,now()) on conflict (subject) do update set attempts=case when cw_request_counter.window_started < now() - interval '3600 seconds' then 1 else cw_request_counter.attempts+1 end,window_started=case when cw_request_counter.window_started < now() - interval '3600 seconds' then now() else cw_request_counter.window_started end returning row_to_json(cw_request_counter);`); if (row.attempts > 10) throw Object.assign(new Error('Too many requests.'), { code: 'RATE_LIMITED', retryAfter: 3600 }); },
+}; }

@@ -50,13 +50,15 @@ function sessionCookie(token, secure) {
   return `cw_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionLifetimeMs / 1000}${secure ? '; Secure' : ''}`;
 }
 
-export async function signIn({ store, email, password, secureCookie, cookieHeader = '' }) {
+export async function signIn({ store, email, password, secureCookie, cookieHeader = '', sourceIp = '' }) {
   const normalised = String(email || '').trim().toLowerCase();
+  const emailSubject = `login:email:${normalised}`; const ipSubject = `login:ip:${sourceIp || 'unknown'}`;
+  await store.assertLoginAllowed({ emailSubject, ipSubject });
   if (store.findUserByEmail) {
     const user = await store.findUserByEmail(normalised);
-    if (!user || !(await passwordMatches(password, user.passwordHash))) throw Object.assign(new Error('Invalid email or password.'), { code: 'AUTHENTICATION_REQUIRED' });
+    if (!user || !(await passwordMatches(password, user.passwordHash))) { await store.recordLoginFailure({ emailSubject, ipSubject }); throw Object.assign(new Error('Invalid email or password.'), { code: 'AUTHENTICATION_REQUIRED' }); }
     const token = randomBytes(32).toString('base64url'); const expiresAt = new Date(Date.now() + sessionLifetimeMs).toISOString();
-    await store.createAuthenticatedSession({ tokenHash: hashToken(token), previousTokenHash: readCookies(cookieHeader).cw_session ? hashToken(readCookies(cookieHeader).cw_session) : null, userId: user.id, expiresAt, auditId: randomUUID() });
+    await store.createAuthenticatedSession({ tokenHash: hashToken(token), previousTokenHash: readCookies(cookieHeader).cw_session ? hashToken(readCookies(cookieHeader).cw_session) : null, userId: user.id, expiresAt, auditId: randomUUID(), loginEmailSubject: emailSubject });
     return { user: { id: user.id, email: user.email, roles: user.roles }, cookie: sessionCookie(token, secureCookie) };
   }
   const state = await store.read();

@@ -85,6 +85,20 @@ test('adversarial: invalid credentials and malformed JSON return safe client err
   assert.equal(malformed.status, 400);
   assert.equal((await malformed.json()).error, 'Malformed JSON.');
 });
-test.todo('WP-4: checkout requires a session and webhook oversize payload is rejected before HMAC');
-test.todo('WP-4: sixth failed login receives 429 and Retry-After');
+test('adversarial: checkout requires a session and oversized webhooks are rejected before HMAC', async (t) => {
+  const { origin, adminCookie } = await harness(t);
+  assert.equal((await fetch(`${origin}/api/checkout`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ productCode: 'cw-membership-monthly' }) })).status, 401);
+  const allowed = await fetch(`${origin}/api/checkout`, authenticated(adminCookie, { productCode: 'cw-membership-monthly' }));
+  assert.equal(allowed.status, 422, 'positive control: authenticated request reaches the unconfigured Stripe boundary');
+  const oversized = await fetch(`${origin}/api/webhooks/stripe`, { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': String(1024 * 1024 + 1) }, body: 'x'.repeat(1024 * 1024 + 1) });
+  assert.equal(oversized.status, 413);
+});
+
+test('adversarial: sixth failed login is throttled with Retry-After', async (t) => {
+  const { origin, login } = await harness(t);
+  for (let attempt = 0; attempt < 5; attempt += 1) assert.equal((await login('admin@example.test', 'wrong-password')).status, 401);
+  const blocked = await login('admin@example.test', 'wrong-password');
+  assert.equal(blocked.status, 429);
+  assert.equal(blocked.headers.get('retry-after'), '900');
+});
 test.todo('WP-9: session-token hash differs from stored row in the PostgreSQL runtime');

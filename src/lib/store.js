@@ -70,7 +70,7 @@ export class FileStore {
   async insertSession(session) { await this.update((state) => state.sessions.push(session)); }
   async deleteSession(tokenHash) { await this.update((state) => { state.sessions = state.sessions.filter((item) => item.tokenHash !== tokenHash); }); }
   async pruneSessions() { await this.update((state) => { state.sessions = state.sessions.filter((item) => new Date(item.expiresAt) > new Date()); }); }
-  async createAuthenticatedSession({ tokenHash, previousTokenHash, userId, expiresAt, auditId }) { await this.update((state) => { state.sessions = state.sessions.filter((item) => new Date(item.expiresAt) > new Date() && item.tokenHash !== previousTokenHash); state.sessions.push({ tokenHash, userId, expiresAt }); state.auditEvents.push({ id: auditId, type: 'auth.signed-in', subjectId: userId, actorId: userId, actorLabel: 'user' }); }); }
+  async createAuthenticatedSession({ tokenHash, previousTokenHash, userId, expiresAt, auditId, loginEmailSubject }) { await this.update((state) => { state.sessions = state.sessions.filter((item) => new Date(item.expiresAt) > new Date() && item.tokenHash !== previousTokenHash); state.sessions.push({ tokenHash, userId, expiresAt }); state.auditEvents.push({ id: auditId, type: 'auth.signed-in', subjectId: userId, actorId: userId, actorLabel: 'user' }); if (loginEmailSubject && state.rateCounters) delete state.rateCounters[loginEmailSubject]; }); }
   async listWorks() { return (await this.read()).works; }
   async listOpenTasks() { return (await this.read()).tasks.filter((task) => ['open', 'in_progress'].includes(task.status)); }
   async appendAuditEvent(event) { await this.update((state) => state.auditEvents.push(event)); }
@@ -94,4 +94,10 @@ export class FileStore {
     });
   }
   async insertOrderWithEntitlement() { throw new Error('Use recordStripeEvent for idempotent Stripe fulfilment.'); }
+  async assertRateAllowed({ subject, limit, windowSeconds }) { const item = (await this.read()).rateCounters?.[subject]; if (item && Date.now() - Date.parse(item.windowStarted) < windowSeconds * 1000 && item.attempts >= limit) throw Object.assign(new Error('Too many requests.'), { code: 'RATE_LIMITED', retryAfter: windowSeconds }); }
+  async recordRateAttempt({ subject, windowSeconds }) { await this.update((state) => { state.rateCounters ||= {}; const item = state.rateCounters[subject]; state.rateCounters[subject] = !item || Date.now() - Date.parse(item.windowStarted) >= windowSeconds * 1000 ? { attempts: 1, windowStarted: new Date().toISOString() } : { ...item, attempts: item.attempts + 1 }; }); }
+  async clearRateAttempt({ subject }) { await this.update((state) => { if (state.rateCounters) delete state.rateCounters[subject]; }); }
+  async assertLoginAllowed({ emailSubject, ipSubject }) { await this.assertRateAllowed({ subject: emailSubject, limit: 5, windowSeconds: 900 }); await this.assertRateAllowed({ subject: ipSubject, limit: 5, windowSeconds: 900 }); }
+  async recordLoginFailure({ emailSubject, ipSubject }) { await this.recordRateAttempt({ subject: emailSubject, windowSeconds: 900 }); await this.recordRateAttempt({ subject: ipSubject, windowSeconds: 900 }); }
+  async consumeCheckoutQuota({ subject }) { await this.recordRateAttempt({ subject, windowSeconds: 3600 }); await this.assertRateAllowed({ subject, limit: 11, windowSeconds: 3600 }); }
 }

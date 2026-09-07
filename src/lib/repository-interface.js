@@ -6,4 +6,6 @@ export const repositoryMethods = [
   'listWorks', 'listOpenTasks', 'listRecentAuditEvents', 'listForOperations',
   'appendAuditEvent', 'insertUserWithAudit', 'insertDeposit', 'findDeposit', 'retrieveDeposit', 'replaceDepositParse',
   'recordStripeEvent', 'insertOrderWithEntitlement',
+  'assertRateAllowed', 'recordRateAttempt', 'clearRateAttempt',
+  'assertLoginAllowed', 'recordLoginFailure', 'consumeCheckoutQuota',
 ];
