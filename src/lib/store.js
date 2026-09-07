@@ -70,9 +70,11 @@ export class FileStore {
   async insertSession(session) { await this.update((state) => state.sessions.push(session)); }
   async deleteSession(tokenHash) { await this.update((state) => { state.sessions = state.sessions.filter((item) => item.tokenHash !== tokenHash); }); }
   async pruneSessions() { await this.update((state) => { state.sessions = state.sessions.filter((item) => new Date(item.expiresAt) > new Date()); }); }
+  async createAuthenticatedSession({ tokenHash, previousTokenHash, userId, expiresAt, auditId }) { await this.update((state) => { state.sessions = state.sessions.filter((item) => new Date(item.expiresAt) > new Date() && item.tokenHash !== previousTokenHash); state.sessions.push({ tokenHash, userId, expiresAt }); state.auditEvents.push({ id: auditId, type: 'auth.signed-in', subjectId: userId, actorId: userId, actorLabel: 'user' }); }); }
   async listWorks() { return (await this.read()).works; }
   async listOpenTasks() { return (await this.read()).tasks.filter((task) => ['open', 'in_progress'].includes(task.status)); }
   async appendAuditEvent(event) { await this.update((state) => state.auditEvents.push(event)); }
+  async insertUserWithAudit({ id, email, passwordHash, roles, createdAt, actorId, auditId }) { await this.update((state) => { if (state.users.some((user) => user.email === email)) throw new Error('A user with this email already exists.'); state.users.push({ id, email, passwordHash, roles, createdAt }); state.auditEvents.push({ id: auditId, type: 'auth.user-created', subjectId: id, actorId, actorLabel: 'user' }); }); return { id, email, roles }; }
   async listRecentAuditEvents(limit) { return (await this.read()).auditEvents.slice(-limit).reverse(); }
   async listForOperations(limit) { return (await this.read()).deposits.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit); }
   async insertDeposit(deposit) { await this.update((state) => { if (state.deposits.some((item) => item.sha256 === deposit.sha256)) throw new Error('An identical source artifact has already been deposited.'); state.deposits.push(deposit); }); return deposit; }

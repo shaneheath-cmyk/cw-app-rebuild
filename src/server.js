@@ -58,7 +58,7 @@ export function createApp({ config = getConfig(), store = createStore(config) } 
       if (request.method === 'GET' && url.pathname === '/api/health') return json(response, 200, { status: 'ok', store: config.databaseUrl ? 'postgresql' : 'file', stripeMode: config.stripeSecretKey ? (config.stripeSecretKey.startsWith('sk_live_') ? 'live' : 'test') : 'unconfigured' });
       if (request.method === 'POST' && url.pathname === '/api/auth/login') {
         const input = JSON.parse(await body(request, 32 * 1024));
-        const result = await signIn({ store, email: input.email, password: input.password, secureCookie });
+        const result = await signIn({ store, email: input.email, password: input.password, secureCookie, cookieHeader: request.headers.cookie });
         response.setHeader('set-cookie', result.cookie);
         return json(response, 200, { user: result.user });
       }

@@ -44,14 +44,13 @@ function sessionCookie(token, secure) {
   return `cw_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionLifetimeMs / 1000}${secure ? '; Secure' : ''}`;
 }
 
-export async function signIn({ store, email, password, secureCookie }) {
+export async function signIn({ store, email, password, secureCookie, cookieHeader = '' }) {
   const normalised = String(email || '').trim().toLowerCase();
   if (store.findUserByEmail) {
     const user = await store.findUserByEmail(normalised);
     if (!user || !(await passwordMatches(password, user.passwordHash))) throw new Error('Invalid email or password.');
     const token = randomBytes(32).toString('base64url'); const expiresAt = new Date(Date.now() + sessionLifetimeMs).toISOString();
-    await store.pruneSessions(); await store.insertSession({ tokenHash: hashToken(token), userId: user.id, expiresAt });
-    await store.appendAuditEvent({ id: randomUUID(), type: 'auth.signed-in', subjectId: user.id, actorId: user.id });
+    await store.createAuthenticatedSession({ tokenHash: hashToken(token), previousTokenHash: readCookies(cookieHeader).cw_session ? hashToken(readCookies(cookieHeader).cw_session) : null, userId: user.id, expiresAt, auditId: randomUUID() });
     return { user: { id: user.id, email: user.email, roles: user.roles }, cookie: sessionCookie(token, secureCookie) };
   }
   const state = await store.read();
@@ -96,9 +95,8 @@ export async function createUser({ store, email, password, assignedRoles, actor 
   if (!selectedRoles.length || selectedRoles.some((role) => !roles.includes(role))) throw new Error('At least one valid role is required.');
   const hash = await passwordHash(password);
   if (store.findUserByEmail) {
-    if (await store.findUserByEmail(normalised)) throw new Error('A user with this email already exists.');
     const user = { id: randomUUID(), email: normalised, passwordHash: hash, roles: selectedRoles, createdAt: new Date().toISOString() };
-    await store.insertUser(user); await store.appendAuditEvent({ id: randomUUID(), type: 'auth.user-created', subjectId: user.id, actorId: actor });
+    await store.insertUserWithAudit({ ...user, actorId: actor, auditId: randomUUID() });
     return { id: user.id, email: user.email, roles: user.roles };
   }
   return store.update((state) => {

@@ -2,7 +2,8 @@
 export const repositoryMethods = [
   'initialise', 'findUserByEmail', 'countUsers', 'insertUser',
   'findSessionByTokenHash', 'insertSession', 'deleteSession', 'pruneSessions',
+  'createAuthenticatedSession',
   'listWorks', 'listOpenTasks', 'listRecentAuditEvents', 'listForOperations',
-  'appendAuditEvent', 'insertDeposit', 'findDeposit', 'retrieveDeposit', 'replaceDepositParse',
+  'appendAuditEvent', 'insertUserWithAudit', 'insertDeposit', 'findDeposit', 'retrieveDeposit', 'replaceDepositParse',
   'recordStripeEvent', 'insertOrderWithEntitlement',
 ];
