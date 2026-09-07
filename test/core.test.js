@@ -157,6 +157,8 @@ test('SQL emitters reject wrong types and safely encode arrays', () => {
   assert.match(sql.text('x$vaaaaaaaaaaaaaaaa$x'), /^\$v[0-9a-f]{16}\$/);
 });
 
-test('relational concurrency and duplicate custody checks require DATABASE_URL', { skip: !process.env.DATABASE_URL && 'requires DATABASE_URL' }, async () => {
-  assert.ok(process.env.DATABASE_URL, 'PostgreSQL integration suite enabled only with DATABASE_URL');
+test('CI refuses to silently skip PostgreSQL integration coverage', () => {
+  if (!process.env.CI || process.env.DATABASE_URL) return;
+  console.error('INTEGRATION COVERAGE: SKIPPED');
+  assert.fail('DATABASE_URL is required for PostgreSQL integration coverage in CI.');
 });

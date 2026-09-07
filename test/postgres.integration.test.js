@@ -24,6 +24,12 @@ test('PostgreSQL enforces duplicate custody, conditional retrieval, and machine 
   const taskCount = await runPsql({ databaseUrl, tuplesOnly: true, sql: `select count(*) from editorial_task where deposit_id=${uuid(deposit.id)} and type='intake-review';` });
   assert.equal(Number(taskCount), 1, 'exactly one intake task exists after concurrent retrieval');
 
+  await repositories.replaceDepositParse({ id: randomUUID(), depositId: deposit.id, wordCount: 2, headings: ['Chapter One'], suggestedTitle: 'Race proof', suggestedAuthor: 'Integration', confidence: 'medium', actor: userId, createdAt: new Date().toISOString() });
+  const operations = await repositories.listForOperations(1);
+  assert.equal(operations.length, 1, 'operations query honors its explicit limit');
+  assert.equal(operations[0].id, deposit.id);
+  assert.equal(operations[0].parse.suggestedTitle, 'Race proof', 'operations joins the deposit parse record');
+
   const auditId = randomUUID();
   await repositories.appendAuditEvent({ id: auditId, type: 'integration.system', subjectId: deposit.id, actorLabel: 'system' });
   const actor = await runPsql({ databaseUrl, tuplesOnly: true, sql: `select coalesce(actor_id::text,'null') || ':' || actor_label from audit_event where id=${uuid(auditId)};` });
