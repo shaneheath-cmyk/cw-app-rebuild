@@ -10,6 +10,7 @@ import { applyStripeEvent, createCheckout, products, stripeMode, verifyWebhook }
 import { spawn } from 'node:child_process';
 import { getConfig } from '../src/lib/config.js';
 import { createApp, createStore } from '../src/server.js';
+import { createRepositories } from '../src/lib/repositories/index.js';
 import * as sql from '../src/lib/sql.js';
 
 async function fixture() {
@@ -95,6 +96,9 @@ test('privileged HTTP workflow requires a CW session and preserves approval boun
   const depositResponse = await fetch(`${origin}/api/deposits`, { method: 'POST', headers: authorised, body: JSON.stringify({ filename: 'sample.txt', content: 'Chapter One\nA careful opening.', declaredRights: 'I control the submission rights.', intendedTitle: 'Sample Work', intendedAuthor: 'Known Author' }) });
   assert.equal(depositResponse.status, 201);
   const { deposit } = await depositResponse.json();
+  const operations = await fetch(`${origin}/api/operations`, { headers: authorised });
+  assert.equal(operations.status, 200);
+  assert.equal((await operations.json()).deposits.some((item) => item.id === deposit.id && item.status === 'staged'), true, 'staged deposit appears in operations intake queue');
   assert.equal((await fetch(`${origin}/api/deposits/${deposit.id}/retrieve`, { method: 'POST', headers: authorised })).status, 200);
   const parsed = await fetch(`${origin}/api/deposits/${deposit.id}/parse`, { method: 'POST', headers: authorised });
   assert.equal(parsed.status, 200);
@@ -102,6 +106,13 @@ test('privileged HTTP workflow requires a CW session and preserves approval boun
   const state = await store.read();
   assert.equal(state.deposits[0].status, 'parsed');
   assert.equal(state.tasks.filter((task) => task.type === 'catalogue-approval').length, 1);
+});
+
+test('file and relational stores expose the identical repository contract', async (t) => {
+  const { root, store } = await fixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const repositories = createRepositories('postgresql://cw_app:secret@127.0.0.1:5432/cw_library');
+  assert.deepEqual(Object.keys(store).sort(), Object.keys(repositories).sort());
 });
 
 test('the runtime refuses to start on the file store when NODE_ENV is production', () => {

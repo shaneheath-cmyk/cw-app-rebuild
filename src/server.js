@@ -77,14 +77,11 @@ export function createApp({ config = getConfig(), store = createStore(config) } 
         return json(response, 201, { user });
       }
       if (request.method === 'GET' && url.pathname === '/api/library') {
-        const works = store.listWorks ? await store.listWorks() : (await store.read()).works;
-        return json(response, 200, { works });
+        return json(response, 200, { works: await store.listWorks() });
       }
       if (request.method === 'GET' && url.pathname === '/api/operations') {
         await actor(request, ['literary-custodian', 'editor', 'production', 'release-manager', 'system-admin']);
-        if (store.listOpenTasks) return json(response, 200, { deposits: [], tasks: await store.listOpenTasks(), auditEvents: await store.listRecentAuditEvents(30) });
-        const state = await store.read();
-        return json(response, 200, { deposits: state.deposits, tasks: state.tasks, auditEvents: state.auditEvents.slice(-30) });
+        return json(response, 200, { deposits: await store.listForOperations(100), tasks: await store.listOpenTasks(), auditEvents: await store.listRecentAuditEvents(30) });
       }
       if (request.method === 'POST' && url.pathname === '/api/deposits') {
         const currentActor = await actor(request, ['contributor', 'literary-custodian', 'system-admin']);
