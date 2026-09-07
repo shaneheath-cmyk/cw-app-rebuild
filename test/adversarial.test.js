@@ -5,18 +5,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/server.js';
 import { FileStore } from '../src/lib/store.js';
+import { hashToken } from '../src/lib/repositories/sessions.js';
 
 async function harness(t) {
   const root = await mkdtemp(join(tmpdir(), 'cw-adversarial-'));
   const config = { nodeEnv: 'test', port: 0, bindHost: '127.0.0.1', dataDirectory: join(root, 'data'), storageRoot: join(root, 'storage'), publicOrigin: 'http://127.0.0.1', stripeSecretKey: '', stripeWebhookSecret: '', stripePrices: {}, bootstrapAdminEmail: 'admin@example.test', bootstrapAdminPassword: 'BootstrapPass123!' };
-  const app = createApp({ config, store: new FileStore(config.dataDirectory) });
+  const store = new FileStore(config.dataDirectory);
+  const app = createApp({ config, store });
   await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await new Promise((resolve) => app.close(resolve)); await rm(root, { recursive: true, force: true }); });
   const origin = `http://127.0.0.1:${app.address().port}`;
   const login = async (email, password) => fetch(`${origin}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) });
   const adminLogin = await login(config.bootstrapAdminEmail, config.bootstrapAdminPassword);
   assert.equal(adminLogin.status, 200, 'positive control: bootstrap administrator can sign in');
-  return { root, config, origin, login, adminCookie: adminLogin.headers.get('set-cookie') };
+  return { root, config, origin, login, store, adminCookie: adminLogin.headers.get('set-cookie') };
 }
 
 function authenticated(cookie, body) { return { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify(body) }; }
@@ -64,8 +66,25 @@ test('adversarial: security headers are emitted on public and protected response
   }
 });
 
-test.todo('WP-3: malformed, absent, bogus, and expired sessions return 401 without decode errors');
-test.todo('WP-3: invalid credentials and non-JSON POST bodies return 401 and 400 respectively');
+test('adversarial: malformed, absent, bogus, and expired sessions return 401', async (t) => {
+  const { origin, store } = await harness(t);
+  for (const cookie of ['', 'cw_session=bogus', 'cw_session=%']) {
+    const response = await fetch(`${origin}/api/operations`, { headers: cookie ? { cookie } : {} });
+    assert.equal(response.status, 401, cookie || 'absent cookie');
+    assert.equal((await response.text()).includes('URI malformed'), false);
+  }
+  await store.insertSession({ tokenHash: hashToken('expired'), userId: (await store.read()).users[0].id, expiresAt: new Date(0).toISOString() });
+  assert.equal((await fetch(`${origin}/api/operations`, { headers: { cookie: 'cw_session=expired' } })).status, 401);
+});
+
+test('adversarial: invalid credentials and malformed JSON return safe client errors', async (t) => {
+  const { origin } = await harness(t);
+  const invalid = await fetch(`${origin}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'admin@example.test', password: 'wrong-password' }) });
+  assert.equal(invalid.status, 401);
+  const malformed = await fetch(`${origin}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' });
+  assert.equal(malformed.status, 400);
+  assert.equal((await malformed.json()).error, 'Malformed JSON.');
+});
 test.todo('WP-4: checkout requires a session and webhook oversize payload is rejected before HMAC');
 test.todo('WP-4: sixth failed login receives 429 and Retry-After');
 test.todo('WP-9: session-token hash differs from stored row in the PostgreSQL runtime');

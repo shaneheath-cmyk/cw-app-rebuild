@@ -126,8 +126,11 @@ export function createApp({ config = getConfig(), store = createStore(config) } 
       }
       return json(response, 404, { error: 'Not found.' });
     } catch (error) {
-      const status = error.message === 'Authentication required.' ? 401 : error.message === 'Forbidden.' ? 403 : error instanceof SyntaxError ? 400 : error.code === 'ENOENT' ? 404 : 422;
-      return json(response, status, { error: error.message || 'Request failed.' });
+      const statusByCode = { AUTHENTICATION_REQUIRED: 401, FORBIDDEN: 403, DUPLICATE_DEPOSIT: 409, REQUEST_TOO_LARGE: 413, RATE_LIMITED: 429 };
+      const status = statusByCode[error.code] || (error instanceof SyntaxError ? 400 : error.code === 'ENOENT' ? 404 : 422);
+      if (!statusByCode[error.code] && !(error instanceof SyntaxError) && error.code !== 'ENOENT') console.error(error);
+      const safeMessage = status === 401 ? 'Authentication required.' : status === 403 ? 'Forbidden.' : status === 400 ? 'Malformed JSON.' : status === 404 ? 'Not found.' : status === 409 ? 'An identical source artifact has already been deposited.' : status === 413 ? 'Request exceeds permitted size.' : status === 429 ? 'Too many requests.' : 'Request failed.';
+      return json(response, status, { error: safeMessage });
     }
   });
 }

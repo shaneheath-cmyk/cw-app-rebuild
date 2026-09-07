@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'; import { many, one, query } from './ba
 export function deposits(databaseUrl) { return {
   insertDeposit: async (d) => {
     try { await query(databaseUrl, `begin; insert into source_deposit (id,submitted_by,filename,sha256,declared_rights,intended_title,intended_author,status,created_at) values (${uuid(d.id)},${uuid(d.submittedBy)},${text(d.filename)},${text(d.sha256)},${text(d.declaredRights)},${text(d.intendedTitle)},${text(d.intendedAuthor)},'staged',${text(d.createdAt)}::timestamptz); commit;`); return d; }
-    catch (error) { if (/unique|duplicate/i.test(error.message)) throw new Error('An identical source artifact has already been deposited.'); throw error; }
+    catch (error) { if (/unique|duplicate/i.test(error.message)) throw Object.assign(new Error('An identical source artifact has already been deposited.'), { code: 'DUPLICATE_DEPOSIT' }); throw error; }
   },
   retrieveDeposit: async ({ depositId, actor }) => {
     const taskId = randomUUID(); const auditId = randomUUID();

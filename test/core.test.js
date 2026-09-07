@@ -93,7 +93,7 @@ test('privileged HTTP workflow requires a CW session and preserves approval boun
   const rotated = await fetch(`${origin}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ email: 'editor@example.com', password: 'BootstrapPass123!' }) });
   assert.equal(rotated.status, 200);
   const rotatedCookie = rotated.headers.get('set-cookie');
-  assert.equal((await fetch(`${origin}/api/auth/me`, { headers: { cookie } })).status, 403, 'pre-rotation token no longer authenticates');
+  assert.equal((await fetch(`${origin}/api/auth/me`, { headers: { cookie } })).status, 401, 'pre-rotation token no longer authenticates');
   assert.equal((await fetch(`${origin}/api/auth/me`, { headers: { cookie: rotatedCookie } })).status, 200, 'rotated token authenticates');
   const authorised = { 'content-type': 'application/json', cookie: rotatedCookie };
   const newUser = await fetch(`${origin}/api/admin/users`, { method: 'POST', headers: authorised, body: JSON.stringify({ email: 'contributor@example.com', password: 'ContributorPass123!', roles: ['contributor'] }) });

@@ -37,7 +37,13 @@ export async function ensureBootstrapAdmin({ store, config }) {
 }
 
 export function readCookies(header = '') {
-  return Object.fromEntries(header.split(';').map((part) => part.trim().split('=').map(decodeURIComponent)).filter(([key]) => key));
+  const cookies = {};
+  for (const part of header.split(';')) {
+    const [rawKey, ...rawValue] = part.trim().split('=');
+    if (!rawKey) continue;
+    try { cookies[decodeURIComponent(rawKey)] = decodeURIComponent(rawValue.join('=')); } catch { /* malformed cookies are unauthenticated, never server errors */ }
+  }
+  return cookies;
 }
 
 function sessionCookie(token, secure) {
@@ -48,14 +54,14 @@ export async function signIn({ store, email, password, secureCookie, cookieHeade
   const normalised = String(email || '').trim().toLowerCase();
   if (store.findUserByEmail) {
     const user = await store.findUserByEmail(normalised);
-    if (!user || !(await passwordMatches(password, user.passwordHash))) throw new Error('Invalid email or password.');
+    if (!user || !(await passwordMatches(password, user.passwordHash))) throw Object.assign(new Error('Invalid email or password.'), { code: 'AUTHENTICATION_REQUIRED' });
     const token = randomBytes(32).toString('base64url'); const expiresAt = new Date(Date.now() + sessionLifetimeMs).toISOString();
     await store.createAuthenticatedSession({ tokenHash: hashToken(token), previousTokenHash: readCookies(cookieHeader).cw_session ? hashToken(readCookies(cookieHeader).cw_session) : null, userId: user.id, expiresAt, auditId: randomUUID() });
     return { user: { id: user.id, email: user.email, roles: user.roles }, cookie: sessionCookie(token, secureCookie) };
   }
   const state = await store.read();
   const user = state.users.find((item) => item.email === normalised);
-  if (!user || !(await passwordMatches(password, user.passwordHash))) throw new Error('Invalid email or password.');
+  if (!user || !(await passwordMatches(password, user.passwordHash))) throw Object.assign(new Error('Invalid email or password.'), { code: 'AUTHENTICATION_REQUIRED' });
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + sessionLifetimeMs).toISOString();
   await store.update((next) => {
@@ -66,19 +72,28 @@ export async function signIn({ store, email, password, secureCookie, cookieHeade
   return { user: { id: user.id, email: user.email, roles: user.roles }, cookie: sessionCookie(token, secureCookie) };
 }
 
-export async function currentActor({ store, cookieHeader, permitted }) {
+export async function authenticate({ store, cookieHeader }) {
   const token = readCookies(cookieHeader).cw_session;
-  if (!token) throw new Error('Authentication required.');
+  if (!token) throw Object.assign(new Error('Authentication required.'), { code: 'AUTHENTICATION_REQUIRED' });
   if (store.findSessionByTokenHash) {
     const user = await store.findSessionByTokenHash(hashToken(token));
-    if (!user || !user.roles.some((role) => permitted.includes(role))) throw new Error('Forbidden.');
+    if (!user) throw Object.assign(new Error('Authentication required.'), { code: 'AUTHENTICATION_REQUIRED' });
     return { id: user.id, email: user.email, roles: user.roles };
   }
   const state = await store.read();
   const session = state.sessions.find((item) => item.token === token && new Date(item.expiresAt) > new Date());
   const user = session && state.users.find((item) => item.id === session.userId);
-  if (!user || !user.roles.some((role) => permitted.includes(role))) throw new Error('Forbidden.');
+  if (!user) throw Object.assign(new Error('Authentication required.'), { code: 'AUTHENTICATION_REQUIRED' });
   return { id: user.id, email: user.email, roles: user.roles };
+}
+
+export function authorise(user, permitted) {
+  if (!user.roles.some((role) => permitted.includes(role))) throw Object.assign(new Error('Forbidden.'), { code: 'FORBIDDEN' });
+  return user;
+}
+
+export async function currentActor({ store, cookieHeader, permitted }) {
+  return authorise(await authenticate({ store, cookieHeader }), permitted);
 }
 
 export async function signOut({ store, cookieHeader, secureCookie }) {
