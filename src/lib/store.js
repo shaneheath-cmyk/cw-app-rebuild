@@ -41,14 +41,14 @@ export class FileStore {
     try {
       await readFile(this.path, 'utf8');
     } catch {
-      await writeFile(this.path, JSON.stringify(emptyState, null, 2), 'utf8');
+      await writeFile(this.path, JSON.stringify(structuredClone(emptyState), null, 2), 'utf8');
     }
   }
 
   async read() {
     await this.initialise();
     const state = JSON.parse(await readFile(this.path, 'utf8'));
-    for (const [key, value] of Object.entries(emptyState)) if (!Array.isArray(state[key])) state[key] = value;
+    for (const [key, value] of Object.entries(emptyState)) if (!Array.isArray(state[key])) state[key] = structuredClone(value);
     return state;
   }
 

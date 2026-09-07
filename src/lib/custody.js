@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 const zones = ['01-staging', '02-source-vault', '03-editorial', '04-production', '05-release', '06-archive'];
@@ -40,13 +40,18 @@ export async function createDeposit({ storageRoot, store, submittedBy, filename,
     createdAt: new Date().toISOString(),
   };
 
-  if (store.insertDeposit) {
-    await store.insertDeposit(deposit);
-    await store.appendAuditEvent({ id: randomUUID(), type: 'deposit.staged', subjectId: deposit.id, actorId: submittedBy });
-  } else await store.update((state) => {
-    state.deposits.push(deposit);
-    state.auditEvents.push({ id: randomUUID(), type: 'deposit.staged', subjectId: deposit.id, at: deposit.createdAt, actor: submittedBy });
-  });
+  try {
+    if (store.insertDeposit) {
+      await store.insertDeposit(deposit);
+      await store.appendAuditEvent({ id: randomUUID(), type: 'deposit.staged', subjectId: deposit.id, actorId: submittedBy });
+    } else await store.update((state) => {
+      state.deposits.push(deposit);
+      state.auditEvents.push({ id: randomUUID(), type: 'deposit.staged', subjectId: deposit.id, at: deposit.createdAt, actor: submittedBy });
+    });
+  } catch (error) {
+    await rm(artifactPath, { force: true });
+    throw error;
+  }
   return deposit;
 }
 
@@ -72,7 +77,7 @@ export async function parseRetrievedDeposit({ storageRoot, store, depositId, act
     if (!deposit) throw new Error('Deposit not found.');
     if (deposit.status !== 'retrieved') throw new Error('Only retrieved deposits can be parsed.');
     const content = await readFile(join(resolve(storageRoot, '01-staging', deposit.id), deposit.filename), 'utf8');
-    const headings = content.split(/\r?\n/).filter((line) => /^(chapter|part|prologue|epilogue)\b/i.test(line.trim())).slice(0, 100);
+    const headings = content.split(/\r?\n/).map((line) => line.trim().slice(0, 200)).filter((line) => /^(chapter|part|prologue|epilogue)\b/i.test(line)).slice(0, 100);
     const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
     return store.replaceDepositParse({ id: randomUUID(), depositId, wordCount, headings, suggestedTitle: deposit.intendedTitle, suggestedAuthor: deposit.intendedAuthor, confidence: deposit.intendedTitle && deposit.intendedAuthor ? 'medium' : 'low', createdAt: new Date().toISOString(), actor });
   }
@@ -82,7 +87,7 @@ export async function parseRetrievedDeposit({ storageRoot, store, depositId, act
   if (deposit.status !== 'retrieved') throw new Error('Only retrieved deposits can be parsed.');
   const sourcePath = join(resolve(storageRoot, '01-staging', deposit.id), deposit.filename);
   const content = await readFile(sourcePath, 'utf8');
-  const headings = content.split(/\r?\n/).filter((line) => /^(chapter|part|prologue|epilogue)\b/i.test(line.trim())).slice(0, 100);
+  const headings = content.split(/\r?\n/).map((line) => line.trim().slice(0, 200)).filter((line) => /^(chapter|part|prologue|epilogue)\b/i.test(line)).slice(0, 100);
   const words = content.trim() ? content.trim().split(/\s+/).length : 0;
   const proposal = { id: `parse-${randomUUID()}`, depositId, wordCount: words, headings, suggestedTitle: deposit.intendedTitle, suggestedAuthor: deposit.intendedAuthor, confidence: deposit.intendedTitle && deposit.intendedAuthor ? 'medium' : 'low', createdAt: new Date().toISOString(), actor };
 

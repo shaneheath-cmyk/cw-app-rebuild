@@ -1,11 +1,11 @@
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join, extname } from 'node:path';
 import { getConfig } from './lib/config.js';
 import { FileStore } from './lib/store.js';
 import { createRepositories } from './lib/repositories/index.js';
 import { createDeposit, parseRetrievedDeposit, retrieveDeposit } from './lib/custody.js';
-import { applyStripeEvent, createCheckout, verifyWebhook } from './lib/stripe.js';
+import { applyStripeEvent, createCheckout, products, verifyWebhook } from './lib/stripe.js';
 import { createUser, currentActor, ensureBootstrapAdmin, signIn, signOut } from './lib/auth.js';
 
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -46,10 +46,10 @@ export function createStore(config) {
 }
 
 export function createApp({ config = getConfig(), store = createStore(config) } = {}) {
-  const publicDirectory = join(process.cwd(), 'src', 'public');
+  const publicDirectory = config.nodeEnv === 'production' ? join(process.cwd(), 'dist') : join(process.cwd(), 'src', 'public');
   const secureCookie = config.publicOrigin.startsWith('https://');
   const actor = (request, permitted) => currentActor({ store, cookieHeader: request.headers.cookie, permitted });
-  const ready = store.initialise().then(() => ensureBootstrapAdmin({ store, config }));
+  const ready = access(publicDirectory).then(() => store.initialise()).then(() => ensureBootstrapAdmin({ store, config }));
   return createServer(async (request, response) => {
     try {
       await ready;
@@ -77,7 +77,7 @@ export function createApp({ config = getConfig(), store = createStore(config) } 
         return json(response, 201, { user });
       }
       if (request.method === 'GET' && url.pathname === '/api/library') {
-        return json(response, 200, { works: await store.listWorks() });
+        return json(response, 200, { works: (await store.listWorks()).map((work) => ({ ...work, digitalPriceCents: products[work.digitalProductCode]?.amount ?? null })) });
       }
       if (request.method === 'GET' && url.pathname === '/api/operations') {
         await actor(request, ['literary-custodian', 'editor', 'production', 'release-manager', 'system-admin']);

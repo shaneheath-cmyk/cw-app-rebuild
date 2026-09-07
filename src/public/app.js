@@ -35,7 +35,8 @@ async function loadLibrary() {
   catalogue.innerHTML = works.map((work) => {
     const storefront = verifiedStorefront(work.kdpUrl);
     const kdp = storefront ? `<a class="outline" href="${escapeHtml(storefront)}" rel="noopener noreferrer">Hardcover ${money(work.hardcoverDisplayPrice)}</a>` : '';
-    return `<article class="card"><p>${escapeHtml(work.author)}</p><h3>${escapeHtml(work.title)}</h3><p class="formats">${work.formats.map(escapeHtml).join(' / ')}</p><div class="card-actions"><button class="button" data-checkout="${escapeHtml(work.digitalProductCode)}">Digital ${money(1495)}</button>${kdp}</div></article>`;
+    const digital = Number.isSafeInteger(work.digitalPriceCents) ? `Digital ${money(work.digitalPriceCents)}` : 'Digital unavailable';
+    return `<article class="card"><p>${escapeHtml(work.author)}</p><h3>${escapeHtml(work.title)}</h3><p class="formats">${work.formats.map(escapeHtml).join(' / ')}</p><div class="card-actions"><button class="button" data-checkout="${escapeHtml(work.digitalProductCode)}" ${work.digitalPriceCents === null ? 'disabled' : ''}>${digital}</button>${kdp}</div></article>`;
   }).join('');
 }
 
